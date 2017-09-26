@@ -1,0 +1,14 @@
+# comment describing key1
+key1 i'm a value of key1
+
+# сomment
+# describing
+# key2
+
+key2 value followed by comment    # commented text
+
+key3 value with hash# sign        # actual comment
+
+key3 repeated value of key 3      # consider only last one
+
+key_with-long-strange_name        # and empty value
