@@ -21,6 +21,10 @@ func generateRandomString(length int) string{
 	return string(b)
 }
 
+func isError() bool {
+	return false
+}
+
 var refreshLockTimeout func(string) error
 
 func main() {
@@ -28,20 +32,27 @@ func main() {
 	redisMessagesQueue := "messages"
 	redisLockTimeout := time.Duration(5 * time.Second)
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
+	subscriberPopTimeout := time.Duration(500 * time.Millisecond)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
+	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
+	//timeoutArg := flag.Int("getErrors", 0, "Retrieves error messages from db")
 	flag.Parse()
 
 	if *addr == "" {
 		log.Fatal("addr is not set")
+	}
+	if *timeoutArg != 0 {
+		messageSleepTimeout = time.Duration(*timeoutArg)
 	}
 
 	client := redis.NewClient(&redis.Options{Addr: *addr})
 	if client == nil {
 		log.Fatal("can't run new redis client, probably wrong addr or max number of clients is reached")
 	}
+	defer client.Close()
 
-	// Transaction
+	// Transaction to refresh my timeout on a lock
 	refreshLockTimeout := func(myId string) error {
 		err := client.Watch(func(tx *redis.Tx) error {
 			holderId, err := tx.Get(redisQueueLock).Bytes()
@@ -69,7 +80,6 @@ func main() {
 	// Should be unique between all clients
 	redisMyId := generateRandomString(6) + "_" + strconv.FormatInt(time.Now().Unix(), 10)
 	log.Println("Trying to acquire lock, my id:", redisMyId)
-
 	for {
 		cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
 		if cmd == nil {
@@ -77,31 +87,35 @@ func main() {
 		}
 
 		if cmd.Val() == true {
-			log.Println("I'm publisher!")
+			log.Println("I'm publisher")
 
-			// In a real life this operations may take a long time
-			time.Sleep(messageSleepTimeout)
-			message := generateRandomString(6)
+			// This instance should be publisher until it will be killed or it loses a lock
+			for {
+				// In a real life this operations may take a long time
+				time.Sleep(messageSleepTimeout)
+				message := generateRandomString(6)
 
-			// Check that i'm still holder of lock
-			if err := refreshLockTimeout(redisMyId); err == nil {
-				log.Println("I'm still publisher, timeout was refreshed")
+				// Check that i'm still holder of lock
+				if err := refreshLockTimeout(redisMyId); err == nil {
+					log.Println("I'm still publisher, timeout was refreshed")
 
-				val, err := client.LPush(redisMessagesQueue, message).Result()
-				if err != nil {
-					log.Printf("failed to push message to queue %v", err)
+					val, err := client.LPush(redisMessagesQueue, message).Result()
+					if err != nil {
+						log.Printf("failed to push message to queue %v", err)
+					}
+
+					log.Printf("Message '%s' was pushed, queue length: %d\n", message, val)
+				} else {
+					log.Println("I was lose a lock")
+					break
 				}
-
-				log.Printf("Message '%s' was pushed, queue length: %d\n", message, val)
-			} else {
-				log.Println("I was late, my message was missed")
 			}
 		} else {
-			log.Println("I'm subscriber!")
+			log.Println("I'm subscriber")
 
-			res, err := client.BLPop(0, redisMessagesQueue).Result()
+			res, err := client.BLPop(subscriberPopTimeout, redisMessagesQueue).Result()
 			if err != nil {
-				log.Printf("Error while receiving message from queue: %v", err)
+				log.Printf("Error while poping message: %v", err)
 				continue
 			}
 
