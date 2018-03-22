@@ -2,12 +2,12 @@ package main
 
 import (
 	redis "github.com/go-redis/redis"
-	"fmt"
 	"flag"
 	"time"
 	"log"
 	"math/rand"
 	"strconv"
+	"errors"
 )
 
 var symbols = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890")
@@ -20,6 +20,8 @@ func generateRandomString(length int) string{
 	}
 	return string(b)
 }
+
+var refreshLockTimeout func(string) error
 
 func main() {
 	redisQueueLock := "queue_lock"
@@ -39,7 +41,33 @@ func main() {
 		log.Fatal("can't run new redis client, probably wrong addr or max number of clients is reached")
 	}
 
-	redisMyId := generateRandomString(6) + strconv.FormatInt(time.Now().Unix(), 10)
+	// Transaction
+	refreshLockTimeout := func(myId string) error {
+		err := client.Watch(func(tx *redis.Tx) error {
+			holderId, err := tx.Get(redisQueueLock).Bytes()
+			if err != nil && err != redis.Nil {
+				return err
+			}
+
+			if string(holderId) == myId {
+				_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
+					pipe.Set(redisQueueLock, myId, redisLockTimeout)
+					return nil
+				})
+			} else {
+				log.Println("Lock holder changed")
+				return errors.New("lock holder changed")
+			}
+			return err
+		}, myId)
+		if err == redis.TxFailedErr {
+			return refreshLockTimeout(myId)
+		}
+		return err
+	}
+
+	// Should be unique between all clients
+	redisMyId := generateRandomString(6) + "_" + strconv.FormatInt(time.Now().Unix(), 10)
 	log.Println("Trying to acquire lock, my id:", redisMyId)
 
 	for {
@@ -49,15 +77,14 @@ func main() {
 		}
 
 		if cmd.Val() == true {
-			fmt.Println("I'm publisher!")
+			log.Println("I'm publisher!")
 
 			// In a real life this operations may take a long time
 			time.Sleep(messageSleepTimeout)
 			message := generateRandomString(6)
 
 			// Check that i'm still holder of lock
-			res := client.Set(redisQueueLock, redisMyId, redisLockTimeout)
-			if res.Val() == redisMyId {
+			if err := refreshLockTimeout(redisMyId); err == nil {
 				log.Println("I'm still publisher, timeout was refreshed")
 
 				val, err := client.LPush(redisMessagesQueue, message).Result()
@@ -70,7 +97,7 @@ func main() {
 				log.Println("I was late, my message was missed")
 			}
 		} else {
-			fmt.Println("I'm subscriber!")
+			log.Println("I'm subscriber!")
 
 			res, err := client.BLPop(0, redisMessagesQueue).Result()
 			if err != nil {
