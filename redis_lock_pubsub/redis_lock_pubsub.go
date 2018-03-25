@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"strconv"
+	"errors"
 )
 
 var symbols = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890")
@@ -34,9 +35,11 @@ var refreshLockTimeout func(string) error
 var popAllErrors func(errRange * []string) error
 
 func main() {
-	redisMessagesChannel := "messages_channel"
+	redisClientsChannelsPattern := "clients_channel*"
 	redisErrorsQueue := "errors"
+	redisQueueLock := "queue_lock"
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
+	redisLockTimeout := time.Duration(5 * time.Second)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
 	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
@@ -96,9 +99,86 @@ func main() {
 	redisMyId := generateRandomString(6) + "_" + strconv.FormatInt(time.Now().Unix(), 10)
 	log.Println("Trying to acquire lock, my id:", redisMyId)
 
-	channels, err := client.PubSubChannels(redisMessagesChannel).Result()
-	if err != nil {
-		log.Fatal("Failed to list channels", err)
+	for {
+		cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
+		if cmd == nil {
+			log.Fatal("Failed to lock")
+		}
+
+		if cmd.Val() == true {
+			log.Println("I'm publisher")
+			// Find new client channel
+			/*
+			channels, err := client.PubSubChannels(redisClientsChannelsPattern).Result()
+			if err != nil {
+				log.Println("Failed to list channels", err)
+				continue
+			}
+			*/
+			pubsub := client.Subscribe(redisClientsChannelsPattern)
+			defer pubsub.Close() // LEAK?!
+
+			go func() {
+				// Lock refresher
+
+				time.Sleep(time.Second)
+				// Transaction to refresh my timeout on a lock
+				refreshLockTimeout := func(myId string) error {
+					err := client.Watch(func(tx *redis.Tx) error {
+						holderId, err := tx.Get(redisQueueLock).Bytes()
+						if err != nil && err != redis.Nil {
+							return err
+						}
+
+						if string(holderId) == myId {
+							_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
+								pipe.Set(redisQueueLock, myId, redisLockTimeout)
+								return nil
+							})
+						} else {
+							log.Println("Lock holder changed")
+							return errors.New("lock holder changed")
+						}
+						return err
+					}, myId)
+					if err == redis.TxFailedErr {
+						return refreshLockTimeout(myId)
+					}
+					return err
+				}
+				refreshLockTimeout(redisMyId)
+			}()
+
+			for {
+				msg, err := pubsub.ReceiveTimeout(time.Second)
+				if err != nil {
+					log.Println("Receive new client error:", err)
+					continue
+				}
+
+				switch msg := msg.(type) {
+				case *redis.Message:
+					log.Println("received", msg.Payload, "from", msg.Channel)
+
+					// Create goroutine for each client
+					channel := msg.Channel
+					go func() {
+						for {
+							time.Sleep(messageSleepTimeout)
+							message := generateRandomString(6)
+							res, err := client.Publish(channel, message).Result()
+							if err != nil {
+								log.Fatal("Failed to publish message", err)
+							}
+							log.Println("Message", message, "for", channel, "was sent", res)
+						}
+					}()
+				default:
+					panic("unreached")
+				}
+			}
+		} else {
+			log.Println("I'm subscriber")
+		}
 	}
-	log.Println(channels)
 }
