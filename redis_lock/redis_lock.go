@@ -72,7 +72,7 @@ func main() {
 				}
 
 				_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
-					pipe.LTrim(redisErrorsQueue, 0, -1)
+					pipe.LRem(redisErrorsQueue, 0, -1)
 					return nil
 				})
 				return err
@@ -126,7 +126,7 @@ func main() {
 	for {
 		cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
 		if cmd == nil {
-			log.Fatal("Failed to lock redis marker")
+			log.Fatal("Failed to lock")
 		}
 
 		if cmd.Val() == true {
