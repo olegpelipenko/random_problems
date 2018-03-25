@@ -40,7 +40,7 @@ func main() {
 	redisMessagesQueue := "messages"
 	redisLockTimeout := time.Duration(5 * time.Second)
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
-	subscriberPopTimeout := time.Duration(500 * time.Millisecond)
+	subscriberPopTimeout := time.Duration(1 * time.Second)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
 	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
@@ -165,8 +165,13 @@ func main() {
 			isError := generateRandomNumber(19) == 0
 			if isError {
 				log.Println("This is an error:", message)
+				
+				if len(message) != 2 {
+					log.Println("Wrong number of args from pop")
+					continue
+				}
 
-				_, err = client.LPush(redisErrorsQueue, message).Result()
+				_, err = client.LPush(redisErrorsQueue, message[1]).Result()
 				if err != nil {
 					log.Println("failed to push error", err)
 				}
