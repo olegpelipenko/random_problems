@@ -32,9 +32,11 @@ func isError() bool {
 }
 
 var refreshLockTimeout func(string) error
+var popAllErrors func(errRange * []string) error
 
 func main() {
 	redisQueueLock := "queue_lock"
+	redisErrorsQueue := "errors"
 	redisMessagesQueue := "messages"
 	redisLockTimeout := time.Duration(5 * time.Second)
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
@@ -60,7 +62,36 @@ func main() {
 	defer client.Close()
 
 	if *getError {
-		//client.Get
+		var errRange []string
+		popAllErrors := func(errRange * []string) error {
+			err := client.Watch(func(tx *redis.Tx) error {
+				var err error
+				*errRange, err = tx.LRange(redisErrorsQueue, 0, -1).Result()
+				if err != nil && err != redis.Nil {
+					return err
+				}
+
+				_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
+					pipe.LTrim(redisErrorsQueue, 0, -1)
+					return nil
+				})
+				return err
+			})
+			if err == redis.TxFailedErr {
+				return popAllErrors(errRange)
+			}
+			return err
+		}
+
+		if err := popAllErrors(&errRange); err != nil {
+			log.Fatalf("error while getting errors list: '%v'", err)
+		}
+
+		log.Println("Errors:")
+		for _, error := range errRange {
+			log.Println(error)
+		}
+
 		return
 	}
 
@@ -113,7 +144,7 @@ func main() {
 
 					val, err := client.LPush(redisMessagesQueue, message).Result()
 					if err != nil {
-						log.Printf("failed to push message to queue %v", err)
+						log.Println("failed to push message", err)
 					}
 
 					log.Printf("Message '%s' was pushed, queue length: %d\n", message, val)
@@ -125,7 +156,7 @@ func main() {
 		} else {
 			log.Println("I'm subscriber")
 
-			res, err := client.BLPop(subscriberPopTimeout, redisMessagesQueue).Result()
+			message, err := client.BLPop(subscriberPopTimeout, redisMessagesQueue).Result()
 			if err != nil {
 				log.Printf("Error while poping message: %v", err)
 				continue
@@ -133,10 +164,15 @@ func main() {
 
 			isError := generateRandomNumber(19) == 0
 			if isError {
-				log.Println("This is an error:", res)
+				log.Println("This is an error:", message)
+
+				_, err = client.LPush(redisErrorsQueue, message).Result()
+				if err != nil {
+					log.Println("failed to push error", err)
+				}
 			}
 
-			log.Println("Message:", res)
+			log.Println("Message:", message)
 		}
 	}
 }
