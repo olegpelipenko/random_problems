@@ -112,7 +112,7 @@ func main() {
 
 			go func() {
 				// Lock refresher
-
+				for {
 				time.Sleep(time.Second)
 				// Transaction to refresh my timeout on a lock
 				refreshLockTimeout := func(myId string) error {
@@ -140,6 +140,7 @@ func main() {
 					return err
 				}
 				refreshLockTimeout(redisMyId)
+				}
 			}()
 
 			for {
