@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strconv"
 	"errors"
+	"net"
 )
 
 var symbols = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890")
@@ -184,8 +185,20 @@ func main() {
 			defer pubsub.Close()  // LEAK!!!???
 
 			for {
-				msg, err := pubsub.ReceiveMessage()
-				if err != nil {
+				msg, err := pubsub.ReceiveTimeout(time.Second)
+				if err, ok := err.(net.Error); ok && err.Timeout() {
+					// Timeout occurred, try to get a lock
+					cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
+					if cmd == nil {
+						log.Fatal("Failed to lock")
+					}
+
+					if cmd.Val() == true {
+						break
+					} else {
+						continue
+					}
+				} else {
 					log.Println("Receive new message error:", err)
 					continue
 				}
