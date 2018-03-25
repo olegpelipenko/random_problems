@@ -150,32 +150,27 @@ func main() {
 			}()
 
 			for {
-				msg, err := pubsub.ReceiveTimeout(time.Second)
+				msg, err := pubsub.ReceiveMessage()
 				if err != nil {
 					log.Println("Receive new client error:", err)
 					continue
 				}
 
-				switch msg := msg.(type) {
-				case *redis.Message:
-					log.Println("received", msg.Payload, "from", msg.Channel)
+				log.Println("received", msg.Payload, "from", msg.Channel)
 
-					// Create goroutine for each client
-					channel := msg.Channel
-					go func() {
-						for {
-							time.Sleep(messageSleepTimeout)
-							message := generateRandomString(6)
-							res, err := client.Publish(channel, message).Result()
-							if err != nil {
-								log.Fatal("Failed to publish message", err)
-							}
-							log.Println("Message", message, "for", channel, "was sent", res)
+				// Create goroutine for each client
+				channel := msg.Channel
+				go func() {
+					for {
+						time.Sleep(messageSleepTimeout)
+						message := generateRandomString(6)
+						res, err := client.Publish(channel, message).Result()
+						if err != nil {
+							log.Fatal("Failed to publish message", err)
 						}
-					}()
-				default:
-					panic("unreached")
-				}
+						log.Println("Message", message, "for", channel, "was sent", res)
+					}
+				}()
 			}
 		} else {
 			log.Println("I'm subscriber")
