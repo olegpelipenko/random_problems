@@ -21,6 +21,12 @@ func generateRandomString(length int) string{
 	return string(b)
 }
 
+// Returns a non-negative pseudo-random number in [0,hi)
+func generateRandomNumber(hi int) int {
+	rand.Seed(time.Now().UTC().UnixNano())
+	return rand.Intn(hi)
+}
+
 func isError() bool {
 	return false
 }
@@ -36,7 +42,8 @@ func main() {
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
 	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
-	//timeoutArg := flag.Int("getErrors", 0, "Retrieves error messages from db")
+	getError := flag.Bool("getErrors", false, "Returns errors")
+
 	flag.Parse()
 
 	if *addr == "" {
@@ -51,6 +58,11 @@ func main() {
 		log.Fatal("can't run new redis client, probably wrong addr or max number of clients is reached")
 	}
 	defer client.Close()
+
+	if *getError {
+		//client.Get
+		return
+	}
 
 	// Transaction to refresh my timeout on a lock
 	refreshLockTimeout := func(myId string) error {
@@ -117,6 +129,11 @@ func main() {
 			if err != nil {
 				log.Printf("Error while poping message: %v", err)
 				continue
+			}
+
+			isError := generateRandomNumber(19) == 0
+			if isError {
+				log.Println("This is an error:", res)
 			}
 
 			log.Println("Message:", res)
