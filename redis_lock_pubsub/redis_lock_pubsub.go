@@ -35,7 +35,7 @@ var refreshLockTimeout func(string) error
 var popAllErrors func(errRange * []string) error
 
 func main() {
-	redisClientsChannelsPattern := "clients_channel*"
+	redisClientsChannelsPattern := "client*"
 	redisErrorsQueue := "errors"
 	redisQueueLock := "queue_lock"
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// Should be unique between all clients
-	redisMyId := generateRandomString(6) + "_" + strconv.FormatInt(time.Now().Unix(), 10)
+	redisMyId := "client_" + generateRandomString(6) + "_" + strconv.FormatInt(time.Now().Unix(), 10)
 	log.Println("Trying to acquire lock, my id:", redisMyId)
 
 	for {
@@ -107,14 +107,6 @@ func main() {
 
 		if cmd.Val() == true {
 			log.Println("I'm publisher")
-			// Find new client channel
-			/*
-			channels, err := client.PubSubChannels(redisClientsChannelsPattern).Result()
-			if err != nil {
-				log.Println("Failed to list channels", err)
-				continue
-			}
-			*/
 			pubsub := client.Subscribe(redisClientsChannelsPattern)
 			defer pubsub.Close() // LEAK?!
 
@@ -174,6 +166,19 @@ func main() {
 			}
 		} else {
 			log.Println("I'm subscriber")
+			_, err := client.Publish(redisClientsChannelsPattern, redisMyId).Result()
+			if err != nil {
+				log.Fatal("Failed to register:", err)
+			}
+
+			pubsub := client.Subscribe(redisMyId)
+			msg, err := pubsub.ReceiveMessage()
+			if err != nil {
+				log.Println("Receive new message error:", err)
+				continue
+			}
+
+			log.Println("Message received", msg)
 		}
 	}
 }
