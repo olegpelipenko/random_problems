@@ -113,33 +113,33 @@ func main() {
 			go func() {
 				// Lock refresher
 				for {
-				time.Sleep(time.Second)
-				// Transaction to refresh my timeout on a lock
-				refreshLockTimeout := func(myId string) error {
-					err := client.Watch(func(tx *redis.Tx) error {
-						holderId, err := tx.Get(redisQueueLock).Bytes()
-						if err != nil && err != redis.Nil {
-							return err
-						}
+					time.Sleep(time.Second)
+					// Transaction to refresh my timeout on a lock
+					refreshLockTimeout := func(myId string) error {
+						err := client.Watch(func(tx *redis.Tx) error {
+							holderId, err := tx.Get(redisQueueLock).Bytes()
+							if err != nil && err != redis.Nil {
+								return err
+							}
 
-						if string(holderId) == myId {
-							_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
-								pipe.Set(redisQueueLock, myId, redisLockTimeout)
-								log.Println("Lock was refreshed")
-								return nil
-							})
-						} else {
-							log.Println("Lock holder changed")
-							return errors.New("lock holder changed")
+							if string(holderId) == myId {
+								_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
+									pipe.Set(redisQueueLock, myId, redisLockTimeout)
+									log.Println("Lock was refreshed")
+									return nil
+								})
+							} else {
+								log.Println("Lock holder changed")
+								return errors.New("lock holder changed")
+							}
+							return err
+						}, myId)
+						if err == redis.TxFailedErr {
+							return refreshLockTimeout(myId)
 						}
 						return err
-					}, myId)
-					if err == redis.TxFailedErr {
-						return refreshLockTimeout(myId)
 					}
-					return err
-				}
-				refreshLockTimeout(redisMyId)
+					refreshLockTimeout(redisMyId)
 				}
 			}()
 
@@ -153,7 +153,7 @@ func main() {
 				log.Println("received", msg.Payload, "from", msg.Channel)
 
 				// Create goroutine for each client
-				channel := msg.Channel
+				channel := msg.Payload
 				go func() {
 					for {
 						time.Sleep(messageSleepTimeout)
@@ -162,25 +162,36 @@ func main() {
 						if err != nil {
 							log.Fatal("Failed to publish message", err)
 						}
-						log.Println("Message", message, "for", channel, "was sent", res)
+
+						if res == 0 {
+							log.Println("Client doesn't received message, stop sending")
+							break;
+						} else {
+							log.Println("Message", message, "for", channel, "was sent", res)
+						}
 					}
 				}()
 			}
 		} else {
 			log.Println("I'm subscriber")
+
 			_, err := client.Publish(redisClientsChannelsPattern, redisMyId).Result()
 			if err != nil {
 				log.Fatal("Failed to register:", err)
 			}
 
 			pubsub := client.Subscribe(redisMyId)
-			msg, err := pubsub.ReceiveMessage()
-			if err != nil {
-				log.Println("Receive new message error:", err)
-				continue
-			}
+			defer pubsub.Close()  // LEAK!!!???
 
-			log.Println("Message received", msg)
+			for {
+				msg, err := pubsub.ReceiveMessage()
+				if err != nil {
+					log.Println("Receive new message error:", err)
+					continue
+				}
+
+				log.Println("Message received", msg)
+			}
 		}
 	}
 }
