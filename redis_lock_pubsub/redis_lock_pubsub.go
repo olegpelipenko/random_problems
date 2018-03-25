@@ -125,6 +125,7 @@ func main() {
 						if string(holderId) == myId {
 							_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
 								pipe.Set(redisQueueLock, myId, redisLockTimeout)
+								log.Println("Lock was refreshed")
 								return nil
 							})
 						} else {
