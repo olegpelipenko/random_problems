@@ -186,7 +186,7 @@ func main() {
 
 			for {
 				msg, err := pubsub.ReceiveTimeout(time.Second)
-				if err, ok := err.(net.Error); ok && err.Timeout() {
+				if err, ok := err.(*net.OpError); ok {
 					// Timeout occurred, try to get a lock
 					cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
 					if cmd == nil {
