@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"strconv"
 	"errors"
-	"net"
 )
 
 var symbols = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890")
@@ -184,23 +183,41 @@ func main() {
 			pubsub := client.Subscribe(redisMyId)
 			defer pubsub.Close()  // LEAK!!!???
 
+			// Trying to acquire lock
+			go func() {
+				for {
+					ttl, err := client.TTL(redisQueueLock).Result()
+					if err != nil {
+						log.Println("Error in TTL command:", err)
+					}
+					time.Sleep(ttl)
+
+					// Timeout occurred, try to get a lock
+					cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
+					if cmd == nil {
+						log.Fatal("Failed to lock")
+					}
+
+					if cmd.Val() == true {
+						log.Println("I'm ready to be a pulisher!")
+					} else {
+						continue
+					}
+				}
+			}()
+
 			for {
 				msg, err := pubsub.ReceiveTimeout(time.Second)
-
+				if err != nil {
+					log.Println("Receiving message error:", err)
+				} else {
+					log.Println("Message received", msg)
+				}
+				/*
 				switch err1 := err.(type) {
 				case net.Error: {
 					if err1.Timeout() {
-						// Timeout occurred, try to get a lock
-						cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
-						if cmd == nil {
-							log.Fatal("Failed to lock")
-						}
 
-						if cmd.Val() == true {
-							break
-						} else {
-							continue
-						}
 					}
 				}
 				case nil: {
@@ -211,6 +228,7 @@ func main() {
 
 				}
 				}
+				*/
 			}
 		}
 	}
