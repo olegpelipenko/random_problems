@@ -206,11 +206,12 @@ func main() {
 					time.Sleep(ttl)
 
 					currentLock, err := client.Exists(redisQueueLock).Result()
+					log.Println("currentlock", currentLock)
 					if err != nil {
 						log.Println("Error getting lock", err)
 						continue
 					}
-					if currentLock < 0 {
+					if currentLock == 0 {
 						log.Println("I'm trying to became a pulisher")
 						c <- 0
 						//close(c)
