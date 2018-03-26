@@ -213,8 +213,7 @@ func main() {
 					}
 					if currentLock == 0 {
 						log.Println("I'm trying to became a pulisher")
-						c <- 0
-						//close(c)
+						close(c)
 						break
 					}
 				}
@@ -223,11 +222,12 @@ func main() {
 			// Receiving messages until publisher exists
 			for {
 				select {
-				case msg := <- c:
-					log.Println("Break", msg)
-					msgPubsub.Unsubscribe(redisMyId)
-					msgPubsub.Close()
-					close(c)
+				case _, ok := <- c:
+					if !ok {
+						log.Println("Break")
+						msgPubsub.Unsubscribe(redisMyId)
+						msgPubsub.Close()
+					}
 					break
 				default:
 					msg, err := msgPubsub.ReceiveTimeout(time.Second)
