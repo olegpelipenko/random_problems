@@ -213,7 +213,7 @@ func main() {
 					if currentLock < 0 {
 						log.Println("I'm trying to became a pulisher")
 						c <- 0
-						close(c)
+						//close(c)
 						break
 					}
 				}
@@ -226,6 +226,7 @@ func main() {
 					log.Println("Break", msg)
 					msgPubsub.Unsubscribe(redisMyId)
 					msgPubsub.Close()
+					close(c)
 					break
 				default:
 					msg, err := msgPubsub.ReceiveTimeout(time.Second)
