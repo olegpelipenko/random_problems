@@ -232,6 +232,15 @@ func main() {
 						log.Println("Receiving message error:", err)
 					} else {
 						log.Println("Message received", msg)
+						isError := rand.Intn(100) < 5
+						if isError {
+							log.Println("This is an error:", msg)
+
+							_, err = client.LPush(redisErrorsQueue, msg).Result()
+							if err != nil {
+								log.Println("failed to push error", err)
+							}
+						}
 					}
 				}
 				if c == nil {
