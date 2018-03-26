@@ -186,24 +186,31 @@ func main() {
 
 			for {
 				msg, err := pubsub.ReceiveTimeout(time.Second)
-				if err, ok := err.(*net.OpError); ok {
-					// Timeout occurred, try to get a lock
-					cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
-					if cmd == nil {
-						log.Fatal("Failed to lock")
-					}
 
-					if cmd.Val() == true {
-						break
-					} else {
-						continue
+				switch err1 := err.(type) {
+				case net.Error: {
+					if err1.Timeout() {
+						// Timeout occurred, try to get a lock
+						cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
+						if cmd == nil {
+							log.Fatal("Failed to lock")
+						}
+
+						if cmd.Val() == true {
+							break
+						} else {
+							continue
+						}
 					}
-				} else {
-					log.Println("Receive new message error:", err)
-					continue
 				}
+				case nil: {
+					log.Println("Message received", msg)
+				}
+				default: {
+					log.Println("Receive new message error:", err)
 
-				log.Println("Message received", msg)
+				}
+				}
 			}
 		}
 	}
