@@ -34,12 +34,31 @@ func isError() bool {
 var refreshLockTimeout func(string) error
 var popAllErrors func(errRange * []string) error
 
+// Goroutine for each client to generate messages to subscription
+func sendMessagesToClient(channel string, client * redis.Client, messageSleepTimeout time.Duration) {
+	for {
+		time.Sleep(messageSleepTimeout)
+		message := generateRandomString(6)
+		res, err := client.Publish(channel, message).Result()
+		if err != nil {
+			log.Fatal("Failed to publish message", err)
+		}
+
+		if res == 0 {
+			log.Println("Client doesn't received message, stop sending")
+			break
+		} else {
+			log.Println("Message", message, "for", channel, "was sent", res)
+		}
+	}
+}
+
 func main() {
 	redisClientsChannelsPattern := "client*"
 	redisErrorsQueue := "errors"
 	redisQueueLock := "queue_lock"
-	messageSleepTimeout := time.Duration(500 * time.Millisecond)
 	redisLockTimeout := time.Duration(5 * time.Second)
+	messageSleepTimeout := time.Duration(500 * time.Millisecond)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
 	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
@@ -107,11 +126,9 @@ func main() {
 
 		if cmd.Val() == true {
 			log.Println("I'm publisher")
-			pubsub := client.Subscribe(redisClientsChannelsPattern)
-			defer pubsub.Close() // LEAK?!
 
+			// Hearthbeat
 			go func() {
-				// Lock refresher
 				for {
 					time.Sleep(time.Second)
 					// Transaction to refresh my timeout on a lock
@@ -130,6 +147,8 @@ func main() {
 								})
 							} else {
 								log.Println("Lock holder changed")
+								//pubsub.Unsubscribe(redisClientsChannelsPattern)
+								//pubsub.Close()
 								return errors.New("lock holder changed")
 							}
 							return err
@@ -143,47 +162,41 @@ func main() {
 				}
 			}()
 
+			channels, err := client.PubSubChannels(redisClientsChannelsPattern).Result()
+			if err != nil {
+				log.Fatal("Errror listing channels", err)
+			}
+			for _, channel := range channels {
+				go sendMessagesToClient(channel, client, messageSleepTimeout)
+			}
+			pubsub := client.Subscribe(redisClientsChannelsPattern)
+
 			for {
 				msg, err := pubsub.ReceiveMessage()
 				if err != nil {
-					log.Println("Receive new client error:", err)
+					log.Println("Receiving client error:", err)
 					continue
 				}
 
 				log.Println("received", msg.Payload, "from", msg.Channel)
 
-				// Create goroutine for each client
+				// New client
 				channel := msg.Payload
-				go func() {
-					for {
-						time.Sleep(messageSleepTimeout)
-						message := generateRandomString(6)
-						res, err := client.Publish(channel, message).Result()
-						if err != nil {
-							log.Fatal("Failed to publish message", err)
-						}
-
-						if res == 0 {
-							log.Println("Client doesn't received message, stop sending")
-							break;
-						} else {
-							log.Println("Message", message, "for", channel, "was sent", res)
-						}
-					}
-				}()
+				go sendMessagesToClient(channel, client, messageSleepTimeout)
 			}
 		} else {
 			log.Println("I'm subscriber")
 
+			// Registering
 			_, err := client.Publish(redisClientsChannelsPattern, redisMyId).Result()
 			if err != nil {
 				log.Fatal("Failed to register:", err)
 			}
 
-			pubsub := client.Subscribe(redisMyId)
-			defer pubsub.Close()  // LEAK!!!???
+			msgPubsub := client.Subscribe(redisMyId)
 
-			// Trying to acquire lock
+			c := make(chan int)
+			// Trying to acquire publisher lock
 			go func() {
 				for {
 					ttl, err := client.TTL(redisQueueLock).Result()
@@ -192,43 +205,36 @@ func main() {
 					}
 					time.Sleep(ttl)
 
-					// Timeout occurred, try to get a lock
-					cmd := client.SetNX(redisQueueLock, redisMyId, redisLockTimeout)
-					if cmd == nil {
-						log.Fatal("Failed to lock")
-					}
-
-					if cmd.Val() == true {
-						log.Println("I'm ready to be a pulisher!")
-					} else {
+					currentLock, err := client.Exists(redisQueueLock).Result()
+					if err != nil {
+						log.Println("Error getting lock", err)
 						continue
+					}
+					if currentLock < 0 {
+						log.Println("I'm trying to became a pulisher")
+						c <- 0
+						close(c)
+						break
 					}
 				}
 			}()
 
+			// Receiving messages until publisher exists
 			for {
-				msg, err := pubsub.ReceiveTimeout(time.Second)
-				if err != nil {
-					log.Println("Receiving message error:", err)
-				} else {
-					log.Println("Message received", msg)
-				}
-				/*
-				switch err1 := err.(type) {
-				case net.Error: {
-					if err1.Timeout() {
-
+				select {
+				case msg := <- c:
+					log.Println("Break", msg)
+					msgPubsub.Unsubscribe(redisMyId)
+					msgPubsub.Close()
+					break
+				default:
+					msg, err := msgPubsub.ReceiveTimeout(time.Second)
+					if err != nil {
+						log.Println("Receiving message error:", err)
+					} else {
+						log.Println("Message received", msg)
 					}
 				}
-				case nil: {
-					log.Println("Message received", msg)
-				}
-				default: {
-					log.Println("Receive new message error:", err)
-
-				}
-				}
-				*/
 			}
 		}
 	}
