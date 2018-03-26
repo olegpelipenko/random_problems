@@ -224,11 +224,8 @@ func main() {
 				select {
 				case _, ok := <- c:
 					if !ok {
-						log.Println("Break")
-						msgPubsub.Unsubscribe(redisMyId)
-						msgPubsub.Close()
+						c = nil
 					}
-					break
 				default:
 					msg, err := msgPubsub.ReceiveTimeout(time.Second)
 					if err != nil {
@@ -236,6 +233,12 @@ func main() {
 					} else {
 						log.Println("Message received", msg)
 					}
+				}
+				if c == nil {
+					log.Println("Break")
+					msgPubsub.Unsubscribe(redisMyId)
+					msgPubsub.Close()
+					break
 				}
 			}
 		}
