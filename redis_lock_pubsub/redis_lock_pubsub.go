@@ -21,16 +21,6 @@ func generateRandomString(length int) string{
 	return string(b)
 }
 
-// Returns a non-negative pseudo-random number in [0,hi)
-func generateRandomNumber(hi int) int {
-	rand.Seed(time.Now().UTC().UnixNano())
-	return rand.Intn(hi)
-}
-
-func isError() bool {
-	return false
-}
-
 var refreshLockTimeout func(string) error
 var popAllErrors func(errRange * []string) error
 
@@ -130,7 +120,7 @@ func hearthbeat(client * redis.Client, redisQueueLock string, redisLockTimeout t
 
 				if string(holderId) == myId {
 					_, err = tx.Pipelined(func(pipe redis.Pipeliner) error {
-						pipe.Set(redisQueueLock, myId, redisLockTimeout)
+						pipe.Expire(redisQueueLock, redisLockTimeout)
 						log.Println("Lock was refreshed")
 						return nil
 					})
@@ -154,7 +144,7 @@ func main() {
 	redisClientsChannelsPattern := "client*"
 	redisErrorsQueue := "errors"
 	redisQueueLock := "queue_lock"
-	redisLockTimeout := time.Duration(5 * time.Second)
+	redisLockTimeout := time.Duration(2 * time.Second)
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
@@ -168,7 +158,6 @@ func main() {
 	}
 	if *timeoutArg != 0 {
 		messageSleepTimeout = time.Duration(*timeoutArg)
-		log.Println(messageSleepTimeout)
 	}
 
 	client := redis.NewClient(&redis.Options{Addr: *addr})
@@ -229,11 +218,11 @@ func main() {
 				log.Fatal("Failed to register:", err)
 			}
 
-			// My personal subscription
-			msgSub := client.Subscribe(redisMyId)
-
 			roleSwitchChannel := make(chan struct{})
 			go tryToAcquirePublisherLock(client, redisQueueLock, &roleSwitchChannel)
+
+			// My personal subscription
+			msgSub := client.Subscribe(redisMyId)
 
 			// Receiving messages until publisher exists
 			for {
@@ -250,7 +239,7 @@ func main() {
 					}
 					log.Println("Received message", msg)
 
-					// We are receiving subscription object on a first call
+					// We are receiving subscription object on a first call, let's ignore it
 					_, ok := msg.(*redis.Message)
 					if !ok {
 						continue
@@ -268,7 +257,6 @@ func main() {
 				}
 
 				if roleSwitchChannel == nil {
-					log.Println("Trying to change role to publisher")
 					msgSub.Unsubscribe(redisMyId)
 					msgSub.Close()
 					break
