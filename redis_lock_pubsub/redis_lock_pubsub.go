@@ -190,7 +190,6 @@ func main() {
 		if cmd.Val() == true {
 			log.Println("I'm publisher")
 
-			// Hearthbeat
 			go hearthbeat(client, redisQueueLock, redisLockTimeout, redisMyId)
 
 			// Run message sender for already existing clients
@@ -219,15 +218,16 @@ func main() {
 		} else {
 			log.Println("I'm subscriber")
 
-			// Registering myself in a message clients queue
+			// Registering myself in a clients subscription
 			_, err := client.Publish(redisClientsChannelsPattern, redisMyId).Result()
 			if err != nil {
 				log.Fatal("Failed to register:", err)
 			}
 
+			// My personal subscription
 			msgSub := client.Subscribe(redisMyId)
-			roleSwitchChannel := make(chan struct{})
 
+			roleSwitchChannel := make(chan struct{})
 			go tryToAcquirePublisherLock(client, redisQueueLock, &roleSwitchChannel)
 
 			// Receiving messages until publisher exists
@@ -241,17 +241,23 @@ func main() {
 					msg, err := msgSub.ReceiveTimeout(time.Second)
 					if err != nil {
 						log.Println("Receiving message error:", err)
-					} else {
-						log.Println("Message received", msg)
+						continue
+					}
+					log.Println("Received message", msg)
 
-						isError := rand.Intn(100) < 5
-						if isError {
-							log.Println("This message is an error:", msg)
+					// We are receiving subscription object on a first call
+					_, ok := msg.(*redis.Message)
+					if !ok {
+						continue
+					}
 
-							_, err = client.LPush(redisErrorsQueue, msg.(*redis.Message).Payload).Result()
-							if err != nil {
-								log.Println("failed to push error", err)
-							}
+					isError := rand.Intn(100) < 5
+					if isError {
+						log.Println("This message is an error:", msg)
+
+						_, err = client.LPush(redisErrorsQueue, msg.(*redis.Message).Payload).Result()
+						if err != nil {
+							log.Println("failed to push error", err)
 						}
 					}
 				}
