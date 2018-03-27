@@ -61,6 +61,8 @@ func tryToAcquirePublisherLock(client * redis.Client, redisQueueLock string, rol
 		if err != nil {
 			log.Println("Error in TTL command:", err)
 		}
+
+		log.Println(ttl)
 		time.Sleep(ttl)
 
 		currentLock, err := client.Exists(redisQueueLock).Result()
@@ -129,8 +131,6 @@ func hearthbeat(client * redis.Client, redisQueueLock string, redisLockTimeout t
 					})
 				} else {
 					log.Println("Lock holder changed")
-					//pubsub.Unsubscribe(redisClientsChannelsPattern)
-					//pubsub.Close()
 					return errors.New("lock holder changed")
 				}
 				return err
