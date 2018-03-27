@@ -24,7 +24,7 @@ func generateRandomString(length int) string{
 var refreshLockTimeout func(string) error
 var popAllErrors func(errRange * []string) error
 
-// Goroutine for each client to generate messages to subscription
+// Goroutine for each client to generate messages for subscription
 func sendMessagesToClient(channel string, client * redis.Client, messageSleepTimeout time.Duration) {
 	for {
 		time.Sleep(messageSleepTimeout)
@@ -37,10 +37,10 @@ func sendMessagesToClient(channel string, client * redis.Client, messageSleepTim
 		}
 
 		if res == 0 {
-			log.Println("Client doesn't received message, stop sending")
+			log.Println("Client doesn't receive message, stop sending")
 			break
 		} else {
-			log.Println("Message", message, "for", channel, "was sent", res)
+			log.Println("Message", message, "for", channel, "was sent")
 		}
 	}
 }
@@ -147,16 +147,12 @@ func main() {
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
-	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
 	getError := flag.Bool("getErrors", false, "Returns errors")
 
 	flag.Parse()
 
 	if *addr == "" {
 		log.Fatal("addr is not set")
-	}
-	if *timeoutArg != 0 {
-		messageSleepTimeout = time.Duration(*timeoutArg)
 	}
 
 	client := redis.NewClient(&redis.Options{Addr: *addr})

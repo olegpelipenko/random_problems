@@ -53,7 +53,6 @@ func tryToBePublisher(client * redis.Client, redisQueueLock string, roleSwitchCh
 	}
 }
 
-
 func hearthbeat(client * redis.Client, redisQueueLock string, redisLockTimeout time.Duration, redisMyId string) {
 	for {
 		time.Sleep(redisLockTimeout - time.Second)
@@ -177,16 +176,12 @@ func main() {
 	messageSleepTimeout := time.Duration(500 * time.Millisecond)
 
 	addr := flag.String("addr", "", "Connection string, format: host:port")
-	timeoutArg := flag.Int("message_sleep_timeout", 0, "Generation timeout for message queue")
 	getError := flag.Bool("getErrors", false, "Returns errors")
 
 	flag.Parse()
 
 	if *addr == "" {
 		log.Fatal("addr is not set")
-	}
-	if *timeoutArg != 0 {
-		messageSleepTimeout = time.Duration(*timeoutArg)
 	}
 
 	client := redis.NewClient(&redis.Options{Addr: *addr})
