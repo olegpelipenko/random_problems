@@ -237,10 +237,6 @@ func main() {
 					roleSwitchChannel = nil
 				}
 			}
-
-			if roleSwitchChannel == nil {
-				break
-			}
 		}
 	}
 }
