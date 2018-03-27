@@ -94,7 +94,7 @@ func runWorkers(stopWorkers * chan struct{},
 	for i := 0; i < runtime.NumCPU(); i++ {
 		go func(stopWorkers * chan struct{}) {
 			log.Println("Worker started")
-			
+
 			for {
 				select {
 				case _, ok := <-*stopWorkers:
@@ -104,7 +104,8 @@ func runWorkers(stopWorkers * chan struct{},
 				default:
 					message, err := client.BLPop(time.Second, redisMessagesQueue).Result()
 					if err != nil {
-						log.Printf("Error while poping message: %v", err)
+						log.Printf("Error while poping message, maybe timeout: %v", err)
+						continue
 					}
 
 					log.Println("Received message:", message)
@@ -118,6 +119,7 @@ func runWorkers(stopWorkers * chan struct{},
 
 					if len(message) != 2 {
 						log.Println("Wrong number of args from pop")
+						continue
 					}
 
 					_, err = client.LPush(redisErrorsQueue, message[1]).Result()
