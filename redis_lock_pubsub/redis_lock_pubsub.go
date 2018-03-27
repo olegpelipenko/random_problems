@@ -62,8 +62,13 @@ func tryToAcquirePublisherLock(client * redis.Client, redisQueueLock string, rol
 			log.Println("Error in TTL command:", err)
 		}
 
-		log.Println(ttl)
-		time.Sleep(ttl)
+		if ttl == 0 {
+			// There is a gap when lock is destroyed by timeout. During this gap we are receiving 0 and then <0 value.
+			// To reduce number of queries let's sleep for a second.
+			time.Sleep(time.Second)
+		} else {
+			time.Sleep(ttl)
+		}
 
 		currentLock, err := client.Exists(redisQueueLock).Result()
 		log.Println("currentlock", currentLock)
