@@ -93,6 +93,8 @@ func runWorkers(stopWorkers * chan struct{},
 				redisMessagesQueue, redisErrorsQueue string) {
 	for i := 0; i < runtime.NumCPU(); i++ {
 		go func(stopWorkers * chan struct{}) {
+			log.Println("Worker started")
+			
 			for {
 				select {
 				case _, ok := <-*stopWorkers:
@@ -127,6 +129,8 @@ func runWorkers(stopWorkers * chan struct{},
 					break
 				}
 			}
+
+			log.Println("Worker stopped")
 		}(stopWorkers)
 	}
 }
