@@ -45,7 +45,7 @@ func sendMessagesToClient(channel string, client * redis.Client, messageSleepTim
 	}
 }
 
-func tryToAcquirePublisherLock(client * redis.Client, redisQueueLock string, roleSwitchChannel * chan struct{}) {
+func tryToBePublisher(client * redis.Client, redisQueueLock string, roleSwitchChannel * chan struct{}) {
 	for {
 		ttl, err := client.TTL(redisQueueLock).Result()
 		if err != nil {
@@ -61,7 +61,6 @@ func tryToAcquirePublisherLock(client * redis.Client, redisQueueLock string, rol
 		}
 
 		currentLock, err := client.Exists(redisQueueLock).Result()
-		log.Println("currentlock", currentLock)
 		if err != nil {
 			log.Println("Error getting lock", err)
 			continue
@@ -219,7 +218,7 @@ func main() {
 			}
 
 			roleSwitchChannel := make(chan struct{})
-			go tryToAcquirePublisherLock(client, redisQueueLock, &roleSwitchChannel)
+			go tryToBePublisher(client, redisQueueLock, &roleSwitchChannel)
 
 			// My personal subscription
 			msgSub := client.Subscribe(redisMyId)
