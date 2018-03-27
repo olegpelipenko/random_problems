@@ -248,7 +248,7 @@ func main() {
 						if isError {
 							log.Println("This message is an error:", msg)
 
-							_, err = client.LPush(redisErrorsQueue, msg).Result()
+							_, err = client.LPush(redisErrorsQueue, msg.(*redis.Message).Payload).Result()
 							if err != nil {
 								log.Println("failed to push error", err)
 							}
